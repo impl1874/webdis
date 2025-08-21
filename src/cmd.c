@@ -20,6 +20,7 @@
 #include <hiredis/hiredis.h>
 #include <hiredis/async.h>
 #include <ctype.h>
+#include "b64/cdecode.h"
 
 struct cmd *
 cmd_new(struct http_client *client, int count) {
@@ -277,6 +278,23 @@ cmd_run(struct worker *w, struct http_client *client,
 
 		/* record argument */
 		cmd->argv[cur_param] = decode_uri(arg, arg_len, &cmd->argv_len[cur_param], 1);
+		/* if arg ends with .b64, base64 decode the content excluding the suffix */
+		if (cmd->argv_len[cur_param] >= 4 &&
+			memcmp(((char*)cmd->argv[cur_param]) + (cmd->argv_len[cur_param] - 4), ".b64", 4) == 0) {
+			size_t b64_src_len = cmd->argv_len[cur_param] - 4;
+			size_t decoded_len = 0;
+			char *decoded = b64_decode((const char*)cmd->argv[cur_param], b64_src_len, &decoded_len);
+			if (decoded) {
+				free(cmd->argv[cur_param]);
+				cmd->argv[cur_param] = decoded;
+                cmd->argv_len[cur_param] = decoded_len;
+			}
+
+            char buf[128];
+            snprintf(buf, sizeof(buf), "decoded=%s\n", decoded);
+            slog(w->s, WEBDIS_DEBUG, buf, strlen(buf));
+            memset(buf, 0, sizeof(buf)); // 清空整个buf
+		}
 		cur_param++;
 	}
 
